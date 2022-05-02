@@ -1,0 +1,260 @@
+[
+    {
+        "id": "8a44f6ee5126dadc",
+        "type": "tab",
+        "label": "DNS",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "caa4cd33a29af8e6",
+        "type": "mqtt in",
+        "z": "8a44f6ee5126dadc",
+        "name": "Change",
+        "topic": "dns_controller/media/+/change",
+        "qos": "2",
+        "datatype": "auto",
+        "broker": "44ad9994.7afd",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 90,
+        "y": 120,
+        "wires": [
+            [
+                "f8baa0e728fcffa6"
+            ]
+        ]
+    },
+    {
+        "id": "d801cd64df39a731",
+        "type": "debug",
+        "z": "8a44f6ee5126dadc",
+        "name": "",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 450,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "9136b9ba2ceeaf98",
+        "type": "http request",
+        "z": "8a44f6ee5126dadc",
+        "name": "WebServer",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "x": 550,
+        "y": 120,
+        "wires": [
+            [
+                "b82786f78dbdb8b9"
+            ]
+        ]
+    },
+    {
+        "id": "5f2a033f8739bd4e",
+        "type": "mqtt out",
+        "z": "8a44f6ee5126dadc",
+        "name": "Publish",
+        "topic": "",
+        "qos": "2",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "44ad9994.7afd",
+        "x": 900,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "f8baa0e728fcffa6",
+        "type": "rbe",
+        "z": "8a44f6ee5126dadc",
+        "name": "",
+        "func": "rbe",
+        "gap": "",
+        "start": "",
+        "inout": "out",
+        "septopics": true,
+        "property": "payload",
+        "topi": "topic",
+        "x": 230,
+        "y": 120,
+        "wires": [
+            [
+                "f2bf547fc050a016"
+            ]
+        ]
+    },
+    {
+        "id": "f2bf547fc050a016",
+        "type": "function",
+        "z": "8a44f6ee5126dadc",
+        "name": "",
+        "func": "let webserver = 'http://${provider}:8082'\n\n// Which node\nif (!msg.topic.includes(\"media\")){\n    return [null, msg]\n}\njl = msg.topic.split('/')\nservice = jl[2]\nnode.warn(`Looking at ${service}`)\n\n// OFF (Send to WebServer)\nlet intent = msg.payload\n\nif (intent == \"on\") msg.method = \"POST\"\nif (intent == \"off\") msg.method = \"DELETE\"\nmsg.intent = intent\nmsg.topic = `dns_controller/media/${service}/status`\nmsg.url = `${webserver}/${service}`\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 120,
+        "wires": [
+            [
+                "d801cd64df39a731",
+                "9136b9ba2ceeaf98"
+            ]
+        ]
+    },
+    {
+        "id": "64c43542f1606f12",
+        "type": "mqtt in",
+        "z": "8a44f6ee5126dadc",
+        "name": "Status",
+        "topic": "dns_controller/media/+/status",
+        "qos": "2",
+        "datatype": "auto",
+        "broker": "44ad9994.7afd",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 90,
+        "y": 260,
+        "wires": [
+            [
+                "104bbaa3c21039cb",
+                "a417882e9035dc0e"
+            ]
+        ]
+    },
+    {
+        "id": "104bbaa3c21039cb",
+        "type": "rbe",
+        "z": "8a44f6ee5126dadc",
+        "name": "",
+        "func": "rbe",
+        "gap": "",
+        "start": "",
+        "inout": "out",
+        "septopics": true,
+        "property": "payload",
+        "topi": "topic",
+        "x": 230,
+        "y": 260,
+        "wires": [
+            [
+                "9d5e5ba20bad28f1"
+            ]
+        ]
+    },
+    {
+        "id": "9d5e5ba20bad28f1",
+        "type": "function",
+        "z": "8a44f6ee5126dadc",
+        "name": "",
+        "func": "let webserver = 'http://${provider}:8082'\n\n// Which node\nif (!msg.topic.includes(\"media\")){\n    return [null, msg]\n}\njl = msg.topic.split('/')\nservice = jl[2]\nnode.warn(`Looking at ${service}`)\n\n// OFF (Send to WebServer)\nlet intent = msg.payload\n\nmsg.intent = intent\nmsg.method = \"GET\"\nmsg.topic = `dns_controller/media/${service}/status`\nmsg.url = `${webserver}/status/${service}`\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 260,
+        "wires": [
+            [
+                "a417882e9035dc0e",
+                "9136b9ba2ceeaf98"
+            ]
+        ]
+    },
+    {
+        "id": "a417882e9035dc0e",
+        "type": "debug",
+        "z": "8a44f6ee5126dadc",
+        "name": "",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "topic",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 260,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "b82786f78dbdb8b9",
+        "type": "change",
+        "z": "8a44f6ee5126dadc",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.Status",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 720,
+        "y": 120,
+        "wires": [
+            [
+                "5f2a033f8739bd4e"
+            ]
+        ]
+    },
+    {
+        "id": "44ad9994.7afd",
+        "type": "mqtt-broker",
+        "name": "MQTT Broker",
+        "broker": "{$mqtt_broker}",
+        "port": "1883",
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "nodered",
+        "birthQos": "0",
+        "birthPayload": "cheese",
+        "birthMsg": {},
+        "closeTopic": "nodered",
+        "closeQos": "0",
+        "closePayload": "cheese2",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "sessionExpiry": ""
+    }
+]
