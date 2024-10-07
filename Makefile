@@ -14,9 +14,10 @@ venv:
 	. venv/bin/activate
 	pip3 install -r etc/webserver_requirements.txt
 
-full: check-env-target
-	rsync --progress -rv --exclude=__pycache__ --exclude=.git --exclude=venv  ../dns_admin/ ${target}:dns_admin/
-	ssh ${target} cd dns_admin \&\& buildah bud -f Dockerfile -t overlord-dns-admin
+full: venv
+#	rsync --progress -rv --exclude=__pycache__ --exclude=.git --exclude=venv  ../dns_admin/ ${target}:dns_admin/
+	pyclean
+	podman build -f Containerfile -t overlord-dns_admin .
 
 test: check-env-target
 	rsync --progress -rv cgi-bin/*.py ${target}:dns_admin/cgi-bin/
