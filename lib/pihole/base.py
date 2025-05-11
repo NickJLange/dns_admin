@@ -10,19 +10,24 @@ import json
 import logging
 import configparser
 from collections import defaultdict
-from pydantic import BaseModel, BaseConfig
+from pydantic import BaseModel, BaseConfig, ConfigDict
 from typing import Optional, List
 from pprint import pprint, pformat
 
 logger = logging.getLogger()
 
 class BaseHTTPHandler(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     app_config: dict
     piList: List[str]
     domains: dict
     password: str
     url: str
     token: str
+    timer: int
+    sessions: dict
+    logged_in: bool = False
+
 
     def __init__(self, app_config: dict) -> None:
         super().__init__(app_config = app_config,
@@ -30,13 +35,61 @@ class BaseHTTPHandler(BaseModel):
             domains = app_config["domains"],
             password = app_config["remote_pi_password"],
             url = "/admin/api.php",
-            token = ""
+            token = app_config["remote_pi_token"],
+            timer = 0,
+            sessions = dict()
         )
-        self.token = hashlib.sha256(
-            hashlib.sha256(str(self.password).encode()).hexdigest().encode()
-        ).hexdigest()
+#        self.token = hashlib.sha256(
+#            hashlib.sha256(str(self.password).encode()).hexdigest().encode()
+#        ).hexdigest()
+
+    def first_connect(self):
+        """
+        Establishes initial connection to the Pihole  controller.
+
+        This method performs the following tasks:
+        1. Creates a new session.
+        2. Sends a POST request to the login endpoint.
+        3. Updates the object with the new session
+
+        Raises:
+            HTTPException: If the login request fails (status code != 200).
+
+        Note:
+            This method should be called before making any other API requests.
+        """
+
+        if self.logged_in:
+            logger.debug("Already logged in. Skipping first_connect() method.")
+            return
+        pArgs = {
+            "pw": self.password,
+            "persistentlogin":"on"
+        }
+        url = "/admin/login.php"
+        for pi in self.piList:
+            self.sessions[pi] = requests.Session()
+            furl = "http://" + str(pi) + url
+            logger.debug(f"'{furl}' with '{pArgs}'")
+#            self.sessions[pi].headers.update({'User-Agent': 'curl/8.7.1'})
+#            self.sessions[pi].headers.update({'Referer': furl})
+#            self.sessions[pi].headers.update({'Sec-GPC': "1"})
+#            self.sessions[pi].headers.update({'DNT': "1"})
+#            self.sessions[pi].headers.update({'Origin': "http://" + str(pi) })
+#            self.sessions[pi].headers.update({'Content-Type': "application/x-www-form-urlencoded" })
+            resp = self.sessions[pi].post(furl, data=pArgs, verify=True)
+            if resp.status_code != 200:
+                logger.error("Failed to login to pihole controller with status code %s", resp.status_code)
+                self.logged_in = False
+                return
+            logger.debug(self.sessions[pi].cookies)
+        self.logged_in = True
+
 
     def cmd(self, cmd, phList, method="post", pi=None, domain=None, comment=None):
+        if not self.logged_in:
+            logger.debug("Not logged in, logging in...")
+            self.first_connect()
         gArgs = {"list": phList, "auth": self.token}
         pArgs = {}
         if domain:
@@ -45,13 +98,21 @@ class BaseHTTPHandler(BaseModel):
             pArgs["comment"] = comment
         qs = urlparse.urlencode(gArgs)
         #        print(qs)
-        with requests.session() as s:
-            furl = "http://" + str(pi) + self.url + "?" + qs
-            #            pprint(furl)
-            logger.debug(f"{furl} with {pArgs}")
-            if method == "get":
-                return s.get(furl).json()
-            return s.post(furl, data=pArgs).json()
+        furl = "http://" + str(pi) + self.url + "?" + qs
+        #            pprint(furl)
+        logger.debug(f"'{furl}' with '{pArgs}'")
+        if method == "get":
+            temp = self.sessions[pi].get(furl,timeout=(3.05, 5))
+            try:
+                return temp.json()
+            except:
+                logger.error(f"Error in get: {temp.text}")
+        temp = self.sessions[pi].post(furl, data=pArgs,timeout=(3.05, 5))
+        try:
+            return temp.json()
+        except:
+            logger.error(f"Error in get: {temp.text}")
+
 
     def transform(self, cleanDomain):
         fdomain = re.sub(r"\.", "\\.", cleanDomain)

@@ -22,48 +22,15 @@ from .alldns import MasterEnabler
 from .pihole import PiHoleOverlord
 
 
+import http.client as http_client
+http_client.HTTPConnection.debuglevel = 0
 
+# You must initialize logging, otherwise you'll not see debug output.
 
-class StatusCheck(MasterEnabler):
-    def get_general(self):
-        logger.info("Getting Status for rpis")
-        resps = list()
-        sumResp = defaultdict(list)
-
-        for pi in self.piList:
-            resps.append(self.cmd(cmd="status", pi=pi))
-        #        pprint(domain_block)
-        stateMap = {"enabled": "on", "disabled": "off"}
-
-        for pi in resps:
-            sumResp[stateMap[pi["status"]]].append(pi)
-        # FIXME: Can HomeKit represent this???
-        if len(sumResp.keys()) > 1:
-            return {"Status": "off"}
-        return {"Status": list(sumResp.keys())[0]}
-
-    def get(self, domain_block=None):
-        if domain_block is None:
-            return self.get_general()
-        else:
-            logger.info("Getting Status for domain: %s" % domain_block)
-            a = PiHoleOverlord()
-            return a.get(domain_block)
-
-
-class HealthCheck(MasterEnabler):
-    def get(self, domain_block=None):
-        if not domain_block:
-            a = PiHoleOverlord()
-            b = MasterEnabler()
-            x = a.get()
-            y = b.get()
-            return {"Status1": x, "Status2": y}
-        return {"Boo": "Doo2"}
-
-
-
-
+logger = logging.getLogger()
+requests_log = logging.getLogger("requests.packages.urllib3")
+#requests_log.setLevel(logging.DEBUG)
+#requests_log.propagate = True
 
 
 
@@ -86,18 +53,17 @@ main_router = APIRouter(
 )
 
 
-@main_router.get("/{domain_block}")
-def get_pihole(domain_block: str):
+@main_router.get("/status/{domain_block}")
+async def get_pihole(domain_block: str):
     return pihole.get(domain_block)
 
+@main_router.post("/disable/{domain_block}")
+async def post_pihole(domain_block: str):
+    return pihole.post("disable", domain_block)
 
-@main_router.post("/{domain_block}")
-def post_pihole(domain_block: str):
-    return pihole.post(domain_block)
-
-@main_router.delete("/{domain_block}")
-def delete_pihole(domain_block: str):
-    return pihole.delete(domain_block)
+@main_router.post("/enable/{domain_block}")
+async def delete_pihole(domain_block: str):
+    return pihole.post("enable",domain_block)
 
 alldns_router = APIRouter(
     prefix="/pihole/alldns",
@@ -109,13 +75,13 @@ alldns_router = APIRouter(
 
 
 @alldns_router.get("/")
-def get_all_dns( command: str | None, timer: int | None):
-    return all_dns.get(command, timer)
+async def get_all_dns():
+    return all_dns.get()
 
 @alldns_router.delete("/")
-def delete_all_dns( command: str | None, timer: int | None):
+async def delete_all_dns( command: str | None, timer: int | None):
     return all_dns.delete(command, timer)
 
 @alldns_router.post("/")
-def post_all_dns( command: str | None, timer: int | None):
-    return all_dns.delete(command, timer)
+async def post_all_dns( command: str | None, timer: int | None):
+    return all_dns.disable(command, timer)

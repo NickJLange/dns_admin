@@ -17,6 +17,16 @@ from pprint import pprint, pformat
 
 #from ..dependencies import get_token_header
 
+import http.client as http_client
+http_client.HTTPConnection.debuglevel = 0
+
+# You must initialize logging, otherwise you'll not see debug output.
+
+logger = logging.getLogger()
+requests_log = logging.getLogger("requests.packages.urllib3")
+#requests_log.setLevel(logging.DEBUG)
+#requests_log.propagate = True
+
 
 from .base import BaseHTTPHandler
 logger = logging.getLogger()
@@ -27,6 +37,9 @@ class PiHoleOverlord(BaseHTTPHandler):
     domains: dict
     password: str
     token: str
+    timer: int #unused, FIXME for optional fields in base class
+    sessions: dict
+
 
     def __init__(self, app_config: dict) -> None:
         super().__init__(app_config = app_config,
@@ -47,9 +60,9 @@ class PiHoleOverlord(BaseHTTPHandler):
             resps.append(self.sGet(domain_block, pi))
         #        pprint(domain_block)
         if domain_block is None or domain_block not in self.domains:
-            return {"Status": resps}
+            return {"status": resps}
         state = "off"
-
+        logger.info(f"Checking status {domain_block}")
         for domain in self.domains[domain_block]:
             logger.debug("%s -> %s" % (domain, self.transform(domain)))
             #            pprint(self.transform(domain))
@@ -72,26 +85,17 @@ class PiHoleOverlord(BaseHTTPHandler):
                     ):
                         logger.info("Switching off %s %s" % (domain, d))
                         state = "off"
-        return {"Status": state}
+        logger.info(f"Result Status {state} for {domain_block}")
+        return {"status": state}
 
-    def post(self, domain_block=None):
+    def post(self, direction:str, domain_block:str|None=None):
         if not domain_block:
-            return "No", 404
-        logger.info("Request to turn on %s" % domain_block)
+            raise HTTPException(status_code=404, detail="Domain Block not configured")
+        logger.info(f"Request to {direction} {domain_block}")
         for pi in self.piList:
-            #            pprint(pi)
             for domain in self.domains[domain_block]:
-                self.add("regex_black", self.transform(domain), "Unfeeling", pi=pi)
-        #                pprint(resp)
-        return self.get(domain_block)
-
-    def delete(self, domain_block=None):
-        if not domain_block:
-            return "No", 404
-        logger.info("Request to turn off %s" % domain_block)
-        for pi in self.piList:
-            #            pprint(pi)
-            for domain in self.domains[domain_block]:
-                self.sub("regex_black", self.transform(domain), "Unfeeling", pi=pi)
-        #                pprint(resp)
+                if direction == "disable":
+                    self.add("regex_black", self.transform(domain), "Unfeeling", pi=pi)
+                elif direction == "enable":
+                    self.sub("regex_black", self.transform(domain), "Unfeeling", pi=pi)
         return self.get(domain_block)
