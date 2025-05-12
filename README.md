@@ -46,3 +46,65 @@ The webserver that wraps pihole to allow one-touch "blacklist" of domains via mq
  },
 
  ```
+
+### config.ini sample
+FIXME on symlink
+```
+[general]
+remote_pi_list: $IP_OR_DNS_OF_PIHOLE, SPACE SEPARATED
+#set REMOTE_PI_LIST environmental variable as well
+
+# pihole_version < 6
+remote_pi_password: $PASSWORD
+remote_pi_token: $TOKEN
+#set remote_pi_password(s) - also set via REMOTE_PI_PASSWORD environment variable
+
+
+### env equiv REMOTE_UBIQUITI[_USERNAME|_PASSWORD]
+
+
+[ubiquiti]
+remote_ubiquiti_device: $UDM
+remote_ubiquiti_username: $UDM_USERNAME
+remote_ubiquiti_password: $UDM_PASSWORD
+
+[ubiquiti_targets]
+kids_macs: $MAC_ADDR
+           $MAC_ADDR2
+           $MAC_ADDR3
+laptop: $MAC_ADDR4
+
+[ubiquiti_rules]
+rules:  $RULE1
+        $RULE2
+
+
+[domains]
+dplus:  disneyplus.com
+        bamgrid.com
+        bam.nr-data.net
+        cdn.registerdisney.go.com
+        cws.conviva.com
+        d9.flashtalking.com
+        disney-portal.my.onetrust.com
+        disneyplus.bn5x.net
+        js-agent.newrelic.com
+        disney-plus.net
+        dssott.com
+        adobedtm.com
+        choosey.com
+
+netflix: netflix.com
+
+hbomax: hbo.com
+
+youtube:youtube.com
+        googlevideo.com
+        youtu.be
+        youtubei.googleapis.com
+        ytimg.com
+        zytimg.com
+
+playstation: playstation.net
+minecraft: minecraft.net
+```
