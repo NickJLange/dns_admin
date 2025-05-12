@@ -1,8 +1,12 @@
-from dns_server import app
+#!/usr/bin/env python3
+
+
+from controller import app
 import sys
+import uvicorn
 
-sys.path.append("../../")
 
+sys.path.append("../lib/")
 
 if __name__ == "__main__":
-    app.run()
+   uvicorn.run("controller:app", host="0.0.0.0", port=19000)
