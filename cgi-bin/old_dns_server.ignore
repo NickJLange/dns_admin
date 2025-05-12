@@ -3,10 +3,18 @@
 
 import requests
 import hashlib
-import urllib
+from urllib import parse as urlparse
+import urllib3
 import re
 import sys
 import os
+import json
+
+from flask.views import MethodView
+import marshmallow as ma
+from flask_smorest import Api, Blueprint, abort
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from flask import Flask
 from flask_restful import Resource, Api, reqparse, abort
@@ -16,10 +24,11 @@ from collections import defaultdict
 import logging
 import configparser
 
+# ~njl/dev/src/overlord/dns_admin/venv/bin/python3
 
 # FIXME: Move to GUNICORN Logging object
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 streamHandler = logging.StreamHandler(sys.stdout)
 formatter = logging.Formatter(
     "[%(asctime)s] - [%(name)s] - [%(levelname)s] - %(message)s"
@@ -50,19 +59,83 @@ def init_config(app, config_location="../etc/config.ini"):
             "remote_pi_password",
             fallback=os.environ.get("REMOTE_PI_PASSWORD"),
         )
-        logger.info("Succesfully read configs from: %s " % config_location)
+        for i in ["DEVICE", "USERNAME", "PASSWORD"]:
+            key = "ubiquiti_%s" % (i.lower())
+            app_config[key] = config.get(
+                "ubiquti",
+                f"remote_{key}",
+                fallback=os.environ.get(f"REMOTE_UBIQUITI_{i}"),
+            )
+        app_config["ubiquiti_targets"] = dict()
+        for provider in config.options("ubiquiti_targets"):
+            app_config["ubiquiti_targets"][provider] = config.get(
+                "ubiquiti_targets", provider
+            ).splitlines()
+            print(provider)
+
     except configparser.Error as a:
         logger.error("Couldn't read configs from: %s %s" % (config_location, a))
     pprint(app_config)
     return app_config
 
 
-app = Flask(__name__)
-api = Api(app)
-app_config = init_config(app)
+# https://192.168.100.1/--data-raw '{"username":"overlord","password":"0verlorD","token":"","rememberMe":false}' -X POST -H 'Referer: https://192.168.100.1/login?redirect=%2F' -H 'Content-Type: application/json'
+#
+def init_ubiquiti(app_config):
+    ## Gameplan - login and get token
+    ## Store Token
+    url = "/api/auth/login"
+    device = app_config["ubiquiti_device"]
+    pArgs = {
+        "username": app_config["ubiquiti_username"],
+        "password": app_config["ubiquiti_password"],
+        "rememberMe": False,
+        "token": "",
+    }
+    s = requests.session()
+    furl = "https://" + str(device) + url
+    # pprint(furl)
+    logger.debug(f"{furl} with {pArgs}")
+    resp = s.post(furl, json=pArgs, verify=False)
+    app_config["ub_csrf_token"] = resp.headers["X-CSRF-Token"]
+    app_config["ub_auth_token"] = (
+        resp.cookies["TOKEN"] if "TOKEN" in resp.cookies else None
+    )
+    app_config["ub_session"] = s
+    if resp.status_code != 200:
+        print("Uh oh")
+    pprint(app_config)
 
 
-class Overlord(Resource):
+class UbiquitiOverlord(MethodView):
+    def __init__(self):
+        global app_config
+        self.controller = app_config["ubiquiti_device"]
+        self.macs = app_config["ubiquiti_targets"]
+        self.auth_token = app_config["ub_auth_token"]
+        self.csrf_token = app_config["ub_csrf_token"]
+        self.base_api_url = f"https://{ self.controller }/proxy/network/api"
+        self.base_api_v2_url = f"https://{ self.controller }/proxy/network/v2/api"
+        self.mac_block_url = f"{self.base_api_url}/s/default/cmd/stamgr"
+        self.client_list_url = f"{self.base_api_v2_url}/site/default/clients/active?includeTrafficUsage=false"
+        self.session = app_config["ub_session"]
+
+    def cmd(self, url, data, qs=None, method="post"):
+        qs = urlparse.urlencode(qs)
+        #        print(qs)
+        furl = url + "?" + qs
+        logger.debug(f"{furl} with {data}")
+        if method == "get":
+            return self.session.get(furl).json()
+        return self.session.post(furl, json=data).json()
+
+    def get(self, domain_block=None):
+        x = None
+        # query status of each one and make the call
+        # check ipv6 prefix - alert if diff?
+
+
+class PiHoleOverlord(Resource):
     def __init__(self):
         global app_config
         self.piList = app_config["remote_pi_list"]
@@ -79,7 +152,7 @@ class Overlord(Resource):
     def sub(self, phList, domain, comment=None, pi="localpi"):
         return self.cmd("sub", phList=phList, domain=domain, comment=comment, pi=pi)
 
-    def cmd(self, cmd, phList, pi=None, domain=None, comment=None):
+    def cmd(self, cmd, phList, method="post", pi=None, domain=None, comment=None):
         url = "/admin/api.php"
         gArgs = {"list": phList, "auth": self.token}
         pArgs = {}
@@ -87,11 +160,14 @@ class Overlord(Resource):
             gArgs[cmd] = domain
         if comment:
             pArgs["comment"] = comment
-        qs = urllib.parse.urlencode(gArgs)
+        qs = urlparse.urlencode(gArgs)
         #        print(qs)
         with requests.session() as s:
             furl = "http://" + str(pi) + url + "?" + qs
             #            pprint(furl)
+            logger.debug(f"{furl} with {pArgs}")
+            if method == "get":
+                return s.get(furl).json()
             return s.post(furl, data=pArgs).json()
 
     def transform(self, cleanDomain):
@@ -101,7 +177,7 @@ class Overlord(Resource):
         return fdomain
 
     def sGet(self, domain_block=None, pi="localhost"):
-        response = self.cmd(cmd="list", phList="regex_black", pi=pi)
+        response = self.cmd(method="get", cmd="list", phList="regex_black", pi=pi)
         return response
 
     def post(self, domain_block=None):
@@ -160,7 +236,7 @@ class Overlord(Resource):
         return {"Status": state}
 
 
-class MasterEnabler(Overlord):
+class MasterEnabler(PiHoleOverlord):
     def __init__(self):
         super(MasterEnabler, self).__init__()
         self.reqparse = reqparse.RequestParser()
@@ -177,7 +253,7 @@ class MasterEnabler(Overlord):
             gArgs[cmd] = None
         if self.timer > 0:
             gArgs[cmd] = self.timer
-        qs = urllib.parse.urlencode(gArgs)
+        qs = urlparse.urlencode(gArgs)
         #        print(qs)
         with requests.session() as s:
             furl = "http://" + str(pi) + url + "?" + qs
@@ -214,6 +290,8 @@ class MasterEnabler(Overlord):
         # FIXME: Can HomeKit represent this???
         if len(sumResp.keys()) > 1:
             return {"Status": "off"}
+        logger.info({"Status": list(sumResp.keys())[0]})
+
         return {"Status": list(sumResp.keys())[0]}
 
 
@@ -240,14 +318,19 @@ class StatusCheck(MasterEnabler):
             return self.get_general()
         else:
             logger.info("Getting Status for domain: %s" % domain_block)
-            a = Overlord()
+            a = PiHoleOverlord()
             return a.get(domain_block)
+
+
+class MasterStatus(MasterEnabler):
+    def __init__(self):
+        super().__init__()
 
 
 class HealthCheck(MasterEnabler):
     def get(self, domain_block=None):
         if not domain_block:
-            a = Overlord()
+            a = PiHoleOverlord()
             b = MasterEnabler()
             x = a.get()
             y = b.get()
@@ -255,12 +338,38 @@ class HealthCheck(MasterEnabler):
         return {"Boo": "Doo2"}
 
 
-api.add_resource(Overlord, "/<string:domain_block>")
-# api.add_resource(MasterEnabler, )
-api.add_resource(
-    MasterEnabler, "/master_switch/", "/master_switch/<string:command>/<int:timer>"
-)
+app = Flask(__name__)
+app.config["API_TITLE"] = "Overlord API"
+app.config["API_VERSION"] = "v1"
+app.config["OPENAPI_VERSION"] = "3.0.2"
+app_config = init_config(app)
+
+if "ubiquiti_device" in app_config:
+    init_ubiquiti(app_config)
+
+api = Api(app)
+
+
+# api.add_resource(Overlord, "/<string:domain_block>")
+# # api.add_resource(MasterEnabler, )
+# api.add_resource(
+#     MasterEnabler,
+#     "/master_switch/",
+#     "/master_switch/<string:command>",
+#     "/master_switch/<string:command>/<int:timer>",
+# )
+# api.add_resource(MasterStatus, "/master_status/", "/master_status", methods=["GET"])
 api.add_resource(StatusCheck, "/status/", "/status/<string:domain_block>")
+
+# api.add_resource(UbiquitiOverlord, "/ubiquiti/mac_block/block/<string:client_block>")
+# api.add_resource(
+#     UbiquitiOverlord,
+#     "/ubiquiti/mac_block/status/<string:client_block>",
+#     methods=["GET"],
+# )
+# api.add_resource(UbiquitiOverlord, "/ubiquiti/mac_block/unblock/<string:client_block>")
+
 api.add_resource(HealthCheck, "/health/")
+
 
 logger.info("starting the app...")
