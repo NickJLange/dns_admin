@@ -155,6 +155,8 @@ class UbiquitiOverlord(BaseModel):
         if self.login_expiry > 0 and datetime.now() < self.login_expiry:
             logger.debug("Login has not expired. Skipping first_connect() method.")
             return
+        if self.session:
+            self.session.close()
         if self.shmem_store.get("ubiquiti_session"):
             logger.debug("Not logged in, but found session in shared memory. Using that to connect.")
             self.session = self.shmem_store["ubiquiti_session"]
@@ -167,6 +169,8 @@ class UbiquitiOverlord(BaseModel):
             "token": "",
         }
         url = "/api/auth/login"
+        if self.session:
+            self.session.close()
         self.session = requests.session()
         furl = "https://" + str(self.controller) + url
         # pprint(furl)
@@ -197,6 +201,14 @@ class UbiquitiOverlord(BaseModel):
     #        print(f'Which one is it? {datetime.now()} {datetime.utcnow()} {(self.login_expiry - datetime.now())} {(self.login_expiry - datetime.utcnow())}')
     #        pprint(self.auth_token)
     #        pprint(self.csrf_token)
+
+    def close(self):
+        """Closes the current session."""
+        if self.session:
+            logger.info("Closing Ubiquiti session.")
+            self.session.close()
+            self.session = None
+            self.logged_in = False
 
     def cmd(self, url, data, qs=None, method="post"):
         self.check_logged_in()

@@ -68,6 +68,8 @@ class BaseHTTPHandler(BaseModel):
         }
         url = "/admin/login.php"
         for pi in self.piList:
+            if pi in self.sessions and self.sessions[pi]:
+                self.sessions[pi].close()
             self.sessions[pi] = requests.Session()
             furl = "http://" + str(pi) + url
             logger.debug(f"'{furl}' with '{pArgs}'")
@@ -85,6 +87,14 @@ class BaseHTTPHandler(BaseModel):
             logger.debug(self.sessions[pi].cookies)
         self.logged_in = True
 
+    def close(self):
+        """Closes all active sessions."""
+        logger.info("Closing all Pihole sessions.")
+        for session in self.sessions.values():
+            if session:
+                session.close()
+        self.sessions.clear()
+        self.logged_in = False
 
     def cmd(self, cmd, phList, method="post", pi=None, domain=None, comment=None):
         if not self.logged_in:
