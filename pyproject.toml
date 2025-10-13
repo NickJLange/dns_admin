@@ -1,0 +1,7 @@
+[project]
+name = "network-kill-switch"
+version = "0.1.0"
+description = "Home Network Kill Switch"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["pyclean"]

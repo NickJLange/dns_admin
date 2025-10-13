@@ -9,3 +9,5 @@ venv
 .venv
 .vscode
 *.bin
+etc/dns_servers
+etc/config.ini
