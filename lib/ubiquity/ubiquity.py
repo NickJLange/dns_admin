@@ -70,6 +70,7 @@ class UbiquitiOverlord(BaseModel):
     shmem_store: DictProxy | None
     shmem_mgr: SyncManager | None
     last_rules_check: datetime | None = None
+    cache_file: str = "ubiquity.cache"
 
     def __init__(self, app_config: dict) -> None:
         super().__init__(
@@ -99,6 +100,58 @@ class UbiquitiOverlord(BaseModel):
         self.firewall_rule_list_url = f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/firewall-rules/combined-traffic-firewall-rules?originType=traffic_rule"
         self.firewall_rule_state_change_url = f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/trafficrules/"
         logger.info("Initialized ubiquity module")
+        self.load_from_cache()
+
+    def save_to_cache(self):
+        """
+        Saves the session data to the cache file.
+        """
+        if not self.session:
+            return
+
+        cache_data = {
+            "auth_token": self.auth_token,
+            "csrf_token": self.csrf_token,
+            "cookies": self.session.cookies.get_dict(),
+            "login_expiry": self.login_expiry,
+        }
+        with open(self.cache_file, "w") as f:
+            json.dump(cache_data, f)
+        logger.info(f"Saved session to cache file: {self.cache_file}")
+
+    def load_from_cache(self):
+        """
+        Loads session data from the cache file if it's valid.
+        """
+        if not os.path.exists(self.cache_file):
+            logger.info("Cache file not found. Skipping.")
+            return
+
+        # Check cache file age
+        cache_age = datetime.now() - datetime.fromtimestamp(
+            os.path.getmtime(self.cache_file)
+        )
+        if cache_age.total_seconds() > 3600:  # 60 minutes
+            logger.info("Cache file is older than 60 minutes. Ignoring.")
+            return
+
+        logger.info(f"Loading session from cache file: {self.cache_file}")
+        with open(self.cache_file, "r") as f:
+            cache_data = json.load(f)
+
+        self.auth_token = cache_data.get("auth_token")
+        self.csrf_token = cache_data.get("csrf_token")
+        self.login_expiry = cache_data.get("login_expiry")
+
+        if not self.auth_token or not self.csrf_token:
+            logger.warning("Incomplete data in cache file. Ignoring.")
+            return
+
+        self.session = requests.session()
+        self.session.cookies.update(cache_data.get("cookies", {}))
+        self.session.headers.update({"X-CSRF-Token": self.csrf_token})
+        self.logged_in = True
+        logger.info("Successfully loaded session from cache.")
 
     def parse_firewall_rules(self):
         """
@@ -195,6 +248,7 @@ class UbiquitiOverlord(BaseModel):
             return
         self.session.headers.update({"X-CSRF-Token": self.csrf_token})
         self.logged_in = True
+        self.save_to_cache()
         self.shmem_store["ubiquity_session"] = self.session
         self.parse_firewall_rules()
 
