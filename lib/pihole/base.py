@@ -13,7 +13,7 @@ from collections import defaultdict
 from pydantic import BaseModel, BaseConfig, ConfigDict
 from typing import Optional, List
 from pprint import pprint, pformat
-from pihole6api import PiHoleAPI
+from pihole6api import PiHole6Client
 
 logger = logging.getLogger()
 

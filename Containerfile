@@ -1,10 +1,12 @@
-FROM docker.io/library/python:3.12.7-slim-bullseye
+#FROM ghcr.io/astral-sh/uv:python3.12-trixie
+FROM python:3.12-slim-trixie
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-RUN python3 -m venv /opt/venv
+RUN uv venv /opt/venv
 
 # Install dependencies:
 COPY etc/webserver_requirements.txt requirements.txt
-RUN . /opt/venv/bin/activate && pip install -r requirements.txt
+RUN . /opt/venv/bin/activate && uv pip install -r requirements.txt
 
 WORKDIR /opt/webserver/cgi-bin/
 COPY cgi-bin/controller.py /opt/webserver/cgi-bin/

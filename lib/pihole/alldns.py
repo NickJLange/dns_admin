@@ -16,7 +16,7 @@ from typing import Optional, List
 from pprint import pprint, pformat
 
 from .base import BaseHTTPHandler
-from pihole6api import PiHoleAPI
+from pihole6api import PiHole6Client
 
 # from ..dependencies import get_token_header
 
@@ -48,7 +48,9 @@ class MasterEnabler(BaseHTTPHandler):
         requests_log.setLevel(logging.DEBUG)
         requests_log.propagate = True
 
-    def cmd(self, cmd=None, phList=None, pi=None, domain=None, comment=None, method="post"):
+    def cmd(
+        self, cmd=None, phList=None, pi=None, domain=None, comment=None, method="post"
+    ):
         if not self.logged_in:
             logger.debug("Not logged in, logging in...")
             self.first_connect()

@@ -26,6 +26,7 @@ venv:
 full: venv
 	cp private/etc/config.ini etc/config.ini
 	cp private/dns_servers  etc/dns_servers
+	cp private/etc/envfile etc/envfile
 	( \
         . venv/bin/activate; \
     	pyclean .; \
@@ -33,8 +34,8 @@ full: venv
 	)
 
 push:
-    podman tag localhost/overlord-dns-admin:latest ghcr.io/nickjlange/overlord-network-kill-switch:${VERSION}-test
-    podman push ghcr.io/nickjlange/overlord-network-kill-switch:${VERSION}-test
+	podman tag localhost/overlord-dns-admin:latest ghcr.io/nickjlange/overlord-network-kill-switch:${VERSION}-test
+	podman push ghcr.io/nickjlange/overlord-network-kill-switch:${VERSION}-test
 
 push-local: check-env-target
 	rsync --progress -rv cgi-bin/*.py ${target}:dns_admin/cgi-bin/

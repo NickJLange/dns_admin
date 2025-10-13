@@ -97,9 +97,7 @@ class UbiquitiOverlord(BaseModel):
         self.mac_block_url = f"{self.base_api_url}/s/default/cmd/stamgr"
         self.client_list_url = f"{self.base_api_v2_url}/site/default/clients/active?includeTrafficUsage=false"
         self.firewall_rule_list_url = f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/firewall-rules/combined-traffic-firewall-rules?originType=traffic_rule"
-        self.firewall_rule_state_change_url = (
-            f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/trafficrules/"
-        )
+        self.firewall_rule_state_change_url = f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/trafficrules/"
         logger.info("Initialized ubiquity module")
 
     def parse_firewall_rules(self):
@@ -125,7 +123,9 @@ class UbiquitiOverlord(BaseModel):
             if rule["name"] in self.firewall_rules:
                 self.firewall_rules[rule["name"]] = rule
                 ## We apparently need to package the whole json
-                logger.info(f"Adding {rule['name']} with origin ID {rule['origin_id']} to state {rule['enabled']}")
+                logger.info(
+                    f"Adding {rule['name']} with origin ID {rule['origin_id']} to state {rule['enabled']}"
+                )
 
         # Update the last checked timestamp
         self.last_rules_check = datetime.now()
@@ -156,7 +156,9 @@ class UbiquitiOverlord(BaseModel):
             logger.debug("Login has not expired. Skipping first_connect() method.")
             return
         if self.shmem_store.get("ubiquiti_session"):
-            logger.debug("Not logged in, but found session in shared memory. Using that to connect.")
+            logger.debug(
+                "Not logged in, but found session in shared memory. Using that to connect."
+            )
             self.session = self.shmem_store["ubiquiti_session"]
             self.logged_in = True
             return
@@ -181,9 +183,14 @@ class UbiquitiOverlord(BaseModel):
             if cookie.name == "TOKEN":
                 self.login_expiry = cookie.expires
 
-        self.csrf_token = resp.headers["X-CSRF-Token"] if "X-CSRF-Token" in resp.headers else None
+        self.csrf_token = (
+            resp.headers["X-CSRF-Token"] if "X-CSRF-Token" in resp.headers else None
+        )
         if resp.status_code != 200:
-            logger.error("Failed to login to Ubiquiti controller with status code %s", resp.status_code)
+            logger.error(
+                "Failed to login to Ubiquiti controller with status code %s",
+                resp.status_code,
+            )
             self.logged_in = False
             return
         self.session.headers.update({"X-CSRF-Token": self.csrf_token})
@@ -222,13 +229,17 @@ class UbiquitiOverlord(BaseModel):
             self.first_connect()
             return
         now = datetime.now()
-        expiry_time = datetime.fromtimestamp(self.login_expiry) if self.login_expiry else None
+        expiry_time = (
+            datetime.fromtimestamp(self.login_expiry) if self.login_expiry else None
+        )
 
         if expiry_time is None or now > expiry_time:
             logger.debug("Login expired, refreshing...")
             self.first_connect()
         else:
-            logger.debug(f"Still logged in. Current time: {now}, valid until: {expiry_time}")
+            logger.debug(
+                f"Still logged in. Current time: {now}, valid until: {expiry_time}"
+            )
 
     def check_rules_freshness(self):
         """
@@ -236,11 +247,16 @@ class UbiquitiOverlord(BaseModel):
         Rules are considered stale if they haven't been checked in the last 60 seconds.
         """
         now = datetime.now()
-        if self.last_rules_check is None or (now - self.last_rules_check).total_seconds() > self.rule_cache_ttl:
+        if (
+            self.last_rules_check is None
+            or (now - self.last_rules_check).total_seconds() > self.rule_cache_ttl
+        ):
             logger.debug("Firewall rules are stale. Refreshing...")
             self.parse_firewall_rules()
         else:
-            logger.debug(f"Firewall rules still fresh. Last checked at {self.last_rules_check}")
+            logger.debug(
+                f"Firewall rules still fresh. Last checked at {self.last_rules_check}"
+            )
 
     def status_rule(self, rule: str | None):
         """
@@ -287,8 +303,10 @@ class UbiquitiOverlord(BaseModel):
 
         # Check if rules need refreshing
         self.check_rules_freshness()
-
-        logger.debug(f"Changing status for {rule} to {requested_status} from {self.firewall_rules[rule]['enabled']}")
+        logger.debug(f" {pformat(self.firewall_rules)}")
+        logger.debug(
+            f"Changing status for {rule} to {requested_status} from {self.firewall_rules[rule]['enabled']}"
+        )
         id = self.firewall_rules[rule]["origin_id"]
         url = f"{self.firewall_rule_state_change_url}/{id}"
         logger.debug(f"{url} vs {self.firewall_rule_state_change_url}")
@@ -298,8 +316,20 @@ class UbiquitiOverlord(BaseModel):
         request_object["action"] = request_object["traffic_rule_action"]
         request_object["description"] = request_object["name"]
         ### FIXME: Need to understand when these are set
-        for i in ["app_category_ids", "app_ids", "domains", "ip_addresses", "ip_ranges", "network_ids", "regions"]:
-            request_object[i] = [] if i not in request_object or request_object[i] is None else request_object[i]
+        for i in [
+            "app_category_ids",
+            "app_ids",
+            "domains",
+            "ip_addresses",
+            "ip_ranges",
+            "network_ids",
+            "regions",
+        ]:
+            request_object[i] = (
+                []
+                if i not in request_object or request_object[i] is None
+                else request_object[i]
+            )
         request_object["_id"] = request_object["origin_id"]
         payload = request_object
         # action\
@@ -307,7 +337,10 @@ class UbiquitiOverlord(BaseModel):
         # resp = resp_raw.json()
         # pprint(resp_raw)
         if resp_raw.status_code != 200:
-            logger.error("Failed to update {rule } on Ubiquiti controller with status code %s", resp_raw.status_code)
+            logger.error(
+                "Failed to update {rule } on Ubiquiti controller with status code %s",
+                resp_raw.status_code,
+            )
             self.logged_in = False
             return {"status": "unknown"}
         self.parse_firewall_rules()
@@ -331,7 +364,9 @@ class UbiquitiOverlord(BaseModel):
         self.check_logged_in()
 
         ### FIXME: What if someone changes things outside the system?
-        logger.debug(f"Changing status for {target} to {requested_status} from {self.state}")
+        logger.debug(
+            f"Changing status for {target} to {requested_status} from {self.state}"
+        )
         if target not in self.macs:
             raise HTTPException(status_code=404, detail="Device not found")
 
@@ -352,14 +387,17 @@ class UbiquitiOverlord(BaseModel):
             # pprint(resp_raw)
             if resp_raw.status_code != 200:
                 logger.error(
-                    "Failed to update {target } on Ubiquiti controller with status code %s", resp_raw.status_code
+                    "Failed to update {target } on Ubiquiti controller with status code %s",
+                    resp_raw.status_code,
                 )
                 self.logged_in = False
                 return {"status": "unknown"}
             resp = resp_raw.json()
             # pprint(resp.items())
             if "meta" not in resp or resp["meta"]["rc"] != "ok":
-                logger.error(f"Failed to change status for {target}/{mac} to {requested_status}")
+                logger.error(
+                    f"Failed to change status for {target}/{mac} to {requested_status}"
+                )
                 return {"status": self.state}
         self.state = target_state
         logger.info(f"Changed status for {target} to {self.state}")
