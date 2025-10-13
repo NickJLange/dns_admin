@@ -10,12 +10,11 @@ WORKDIR /opt/webserver/cgi-bin/
 COPY cgi-bin/controller.py /opt/webserver/cgi-bin/
 COPY cgi-bin/gunicorn_config.py /opt/webserver/cgi-bin/
 COPY cgi-bin/wsgi.py /opt/webserver/cgi-bin/
+COPY lib/. /opt/webserver/lib/
 
 WORKDIR /opt/webserver/etc/
 COPY etc/config.ini /opt/webserver/etc/
 
-WORKDIR /opt/webserver/cgi-bin/
-COPY lib/. /opt/webserver/lib/
 
 #PYTHONPATH=../../dns_admin/lib/
 WORKDIR /opt/webserver/

@@ -15,21 +15,24 @@ from pydantic import BaseModel, BaseConfig
 from typing import Optional, List
 from pprint import pprint, pformat
 
-#from ..dependencies import get_token_header
+# from ..dependencies import get_token_header
 
 import http.client as http_client
+
 http_client.HTTPConnection.debuglevel = 0
 
 # You must initialize logging, otherwise you'll not see debug output.
 
 logger = logging.getLogger()
 requests_log = logging.getLogger("requests.packages.urllib3")
-#requests_log.setLevel(logging.DEBUG)
-#requests_log.propagate = True
+# requests_log.setLevel(logging.DEBUG)
+# requests_log.propagate = True
 
 
 from .base import BaseHTTPHandler
+
 logger = logging.getLogger()
+
 
 class PiHoleOverlord(BaseHTTPHandler):
     app_config: dict
@@ -37,13 +40,14 @@ class PiHoleOverlord(BaseHTTPHandler):
     domains: dict
     password: str
     token: str
-    timer: int #unused, FIXME for optional fields in base class
+    timer: int  # unused, FIXME for optional fields in base class
     sessions: dict
 
-
     def __init__(self, app_config: dict) -> None:
-        super().__init__(app_config = app_config,
+        super().__init__(
+            app_config=app_config,
         )
+
     def add(self, phList, domain, comment=None, pi="localpi"):
         return self.cmd("add", phList=phList, domain=domain, comment=comment, pi=pi)
 
@@ -69,33 +73,26 @@ class PiHoleOverlord(BaseHTTPHandler):
             for pi in resps:
                 for d in pi["data"]:
                     #                    pprint(d)
-                    if (
-                        "domain" in d
-                        and "enabled" in d
-                        and self.transform(domain) == d["domain"]
-                        and d["enabled"] == 1
-                    ):
+                    if "domain" in d and "enabled" in d and self.transform(domain) == d["domain"] and d["enabled"] == 1:
                         logger.info("Switching on %s %s" % (domain, d))
                         state = "on"
-                    if (
-                        "domain" in d
-                        and "enabled" in d
-                        and self.transform(domain) == d["domain"]
-                        and d["enabled"] == 0
-                    ):
+                    if "domain" in d and "enabled" in d and self.transform(domain) == d["domain"] and d["enabled"] == 0:
                         logger.info("Switching off %s %s" % (domain, d))
                         state = "off"
         logger.info(f"Result Status {state} for {domain_block}")
         return {"status": state}
 
-    def post(self, direction:str, domain_block:str|None=None):
+    def post(self, direction: str, domain_block: str | None = None):
         if not domain_block:
             raise HTTPException(status_code=404, detail="Domain Block not configured")
         logger.info(f"Request to {direction} {domain_block}")
         for pi in self.piList:
             for domain in self.domains[domain_block]:
                 if direction == "disable":
-                    self.add("regex_black", self.transform(domain), "Unfeeling", pi=pi)
+                    pi.domain_management.delete_domain(self.transform(domain), "deny", "regex")
+                #                    self.add("regex_black", self.transform(domain), "Unfeeling", pi=pi)
                 elif direction == "enable":
-                    self.sub("regex_black", self.transform(domain), "Unfeeling", pi=pi)
+                    #                    self.sub("regex_black", self.transform(domain), "Unfeeling", pi=pi)
+                    pi.domain_management.add_domain(self.transform(domain), "deny", "regex")
+
         return self.get(domain_block)
