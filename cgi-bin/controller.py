@@ -17,9 +17,6 @@ from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, BaseConfig
 from typing import Optional, List
 
-# Disable warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 ### For Data Sharing of Login Sessions
 from multiprocessing import Manager
 

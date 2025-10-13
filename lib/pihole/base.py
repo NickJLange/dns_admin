@@ -68,21 +68,17 @@ class BaseHTTPHandler(BaseModel):
         }
         url = "/admin/login.php"
         for pi in self.piList:
-            self.sessions[pi] = requests.Session()
-            furl = "http://" + str(pi) + url
-            logger.debug(f"'{furl}' with '{pArgs}'")
-#            self.sessions[pi].headers.update({'User-Agent': 'curl/8.7.1'})
-#            self.sessions[pi].headers.update({'Referer': furl})
-#            self.sessions[pi].headers.update({'Sec-GPC': "1"})
-#            self.sessions[pi].headers.update({'DNT': "1"})
-#            self.sessions[pi].headers.update({'Origin': "http://" + str(pi) })
-#            self.sessions[pi].headers.update({'Content-Type': "application/x-www-form-urlencoded" })
-            resp = self.sessions[pi].post(furl, data=pArgs, verify=True)
-            if resp.status_code != 200:
-                logger.error("Failed to login to pihole controller with status code %s", resp.status_code)
+            try:
+                self.sessions[pi] = requests.Session()
+                furl = "https://" + str(pi) + url
+                logger.debug(f"'{furl}' with '{pArgs}'")
+                resp = self.sessions[pi].post(furl, data=pArgs, verify=True)
+                resp.raise_for_status()
+                logger.debug(self.sessions[pi].cookies)
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Failed to login to pihole controller {pi}: {e}")
                 self.logged_in = False
                 return
-            logger.debug(self.sessions[pi].cookies)
         self.logged_in = True
 
 
@@ -97,21 +93,23 @@ class BaseHTTPHandler(BaseModel):
         if comment:
             pArgs["comment"] = comment
         qs = urlparse.urlencode(gArgs)
-        #        print(qs)
-        furl = "http://" + str(pi) + self.url + "?" + qs
-        #            pprint(furl)
+        furl = "https://" + str(pi) + self.url + "?" + qs
         logger.debug(f"'{furl}' with '{pArgs}'")
-        if method == "get":
-            temp = self.sessions[pi].get(furl,timeout=(3.05, 5))
-            try:
-                return temp.json()
-            except:
-                logger.error(f"Error in get: {temp.text}")
-        temp = self.sessions[pi].post(furl, data=pArgs,timeout=(3.05, 5))
+
         try:
-            return temp.json()
-        except:
-            logger.error(f"Error in get: {temp.text}")
+            if method == "get":
+                response = self.sessions[pi].get(furl, timeout=(3.05, 5), verify=True)
+            else:
+                response = self.sessions[pi].post(furl, data=pArgs, timeout=(3.05, 5), verify=True)
+
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"API call failed: {e}")
+            raise HTTPException(status_code=500, detail="Pi-hole API communication error")
+        except json.JSONDecodeError:
+            logger.error(f"Failed to decode JSON from response: {response.text}")
+            raise HTTPException(status_code=500, detail="Invalid JSON response from Pi-hole API")
 
 
     def transform(self, cleanDomain):

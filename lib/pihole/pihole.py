@@ -58,44 +58,48 @@ class PiHoleOverlord(BaseHTTPHandler):
         resps = list()
         for pi in self.piList:
             resps.append(self.sGet(domain_block, pi))
-        #        pprint(domain_block)
+
         if domain_block is None or domain_block not in self.domains:
             return {"status": resps}
-        state = "off"
-        logger.info(f"Checking status {domain_block}")
-        for domain in self.domains[domain_block]:
-            logger.debug("%s -> %s" % (domain, self.transform(domain)))
-            #            pprint(self.transform(domain))
-            for pi in resps:
-                for d in pi["data"]:
-                    #                    pprint(d)
-                    if (
-                        "domain" in d
-                        and "enabled" in d
-                        and self.transform(domain) == d["domain"]
-                        and d["enabled"] == 1
-                    ):
-                        logger.info("Switching on %s %s" % (domain, d))
-                        state = "on"
-                    if (
-                        "domain" in d
-                        and "enabled" in d
-                        and self.transform(domain) == d["domain"]
-                        and d["enabled"] == 0
-                    ):
-                        logger.info("Switching off %s %s" % (domain, d))
-                        state = "off"
-        logger.info(f"Result Status {state} for {domain_block}")
-        return {"status": state}
 
-    def post(self, direction:str, domain_block:str|None=None):
+        logger.info(f"Checking status for domain block: {domain_block}")
+        domain_statuses = {}
+        for domain in self.domains[domain_block]:
+            transformed_domain = self.transform(domain)
+            domain_statuses[domain] = "off"  # Default to off
+            logger.debug(f"Checking domain: {domain} -> {transformed_domain}")
+
+            for pi_response in resps:
+                if 'data' in pi_response:
+                    for d in pi_response["data"]:
+                        if d.get("domain") == transformed_domain:
+                            if d.get("enabled") == 1:
+                                domain_statuses[domain] = "on"
+                                logger.info(f"Domain {domain} is ON on a pihole")
+                                break  # Found status for this domain, move to next
+                            else:
+                                logger.info(f"Domain {domain} is OFF on a pihole")
+                if domain_statuses[domain] == "on":
+                    break  # already found it's on for this domain
+
+        # If any domain in the block is "on", the whole block is considered "on"
+        final_state = "off"
+        for domain, status in domain_statuses.items():
+            if status == "on":
+                final_state = "on"
+                break
+
+        logger.info(f"Final status for domain block {domain_block}: {final_state}")
+        return {"status": final_state}
+
+    def post(self, direction: str, domain_block: str | None = None):
         if not domain_block:
             raise HTTPException(status_code=404, detail="Domain Block not configured")
         logger.info(f"Request to {direction} {domain_block}")
         for pi in self.piList:
             for domain in self.domains[domain_block]:
                 if direction == "disable":
-                    self.add("regex_black", self.transform(domain), "Unfeeling", pi=pi)
+                    self.cmd("add", "regex_black", pi=pi, domain=self.transform(domain))
                 elif direction == "enable":
-                    self.sub("regex_black", self.transform(domain), "Unfeeling", pi=pi)
+                    self.cmd("sub", "regex_black", pi=pi, domain=self.transform(domain))
         return self.get(domain_block)
