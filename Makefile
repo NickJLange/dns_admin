@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := all
 
 include private/dns_servers
-
+include private/ghcr_username
 VERSION=2.0
 
 check-env-%:
@@ -34,8 +34,8 @@ full: venv
 	)
 
 push:
-	podman tag localhost/overlord-dns-admin:latest ghcr.io/nickjlange/overlord-network-kill-switch:${VERSION}-test
-	podman push ghcr.io/nickjlange/overlord-network-kill-switch:${VERSION}-test
+	podman tag localhost/overlord-dns-admin:latest ghcr.io/${GHCR_USERNAME}/overlord-network-kill-switch:${VERSION}-test
+	podman push ghcr.io/${GHCR_USERNAME}/overlord-network-kill-switch:${VERSION}-test
 
 push-local: check-env-target
 	rsync --progress -rv cgi-bin/*.py ${target}:dns_admin/cgi-bin/
@@ -48,11 +48,8 @@ test-local:
 	$(TEST_CMD) localhost/overlord-dns-admin
 
 test-remote:
-	podman pull ghcr.io/nickjlange/overlord-network-kill-switch:${VERSION}-test
-	$(TEST_CMD) ghcr.io/nickjlange/overlord-network-kill-switch:${VERSION}-test
-test-remote:
-
-test:
+	podman pull ghcr.io/${GHCR_USERNAME}/overlord-network-kill-switch:${VERSION}-test
+	$(TEST_CMD) ghcr.io/${GHCR_USERNAME}/overlord-network-kill-switch:${VERSION}-test
 
 all:
 	@echo "No op."

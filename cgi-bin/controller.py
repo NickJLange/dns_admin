@@ -30,8 +30,8 @@ from pihole import pihole_core  # noqa: E402
 from ubiquity import ubiquity  # noqa: E402
 
 logging.basicConfig(
-    level=logging.DEBUG,
-    format="[%(asctime)s] - [%(name)s] - [%(levelname)s] - %(message)s",
+    level=logging.ERROR,
+    format="[%(asctime)s] - [%(name)s] - [%(funcName)s:%(lineno)d] - [%(levelname)s] - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 
@@ -82,7 +82,9 @@ def init_config(app, config_location: str = "../etc/config.ini"):
         logger.info(pformat(config.sections()))
         app_config["domains"] = dict()
         for provider in config.options("domains"):
-            app_config["domains"][provider] = config.get("domains", provider).splitlines()
+            app_config["domains"][provider] = config.get(
+                "domains", provider
+            ).splitlines()
             print(provider)
         app_config["remote_pi_list"] = config.get(
             "general",
@@ -99,7 +101,7 @@ def init_config(app, config_location: str = "../etc/config.ini"):
             "remote_pi_token",
             fallback=os.environ.get("REMOTE_PI_TOKEN"),
         )
-        for i in ["DEVICE", "USERNAME", "PASSWORD"]:
+        for i in ["DEVICE", "USERNAME", "PASSWORD", "API_KEY"]:
             key = "ubiquiti_%s" % (i.lower())
             app_config[key] = config.get(
                 "ubiquiti",
@@ -108,7 +110,9 @@ def init_config(app, config_location: str = "../etc/config.ini"):
             )
         app_config["ubiquiti_targets"] = dict()
         for provider in config.options("ubiquiti_targets"):
-            app_config["ubiquiti_targets"][provider] = config.get("ubiquiti_targets", provider).splitlines()
+            app_config["ubiquiti_targets"][provider] = config.get(
+                "ubiquiti_targets", provider
+            ).splitlines()
             print(provider)
 
         app_config["ubiquiti_rules"] = dict()

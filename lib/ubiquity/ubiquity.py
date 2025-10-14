@@ -33,12 +33,16 @@ from multiprocessing.managers import SyncManager, DictProxy
 
 # logger = logging.getLogger()
 requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
 # requests_log.setLevel(logging.DEBUG)
 # requests_log.propagate = True
 
 # https://192.168.100.1/--data-raw '{"username":"overlord","password":"0verlorD","token":"","rememberMe":false}' -X POST -H 'Referer: https://192.168.100.1/login?redirect=%2F' -H 'Content-Type: application/json'
 #
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class InboundPayload(BaseModel):
@@ -71,6 +75,7 @@ class UbiquitiOverlord(BaseModel):
     shmem_mgr: SyncManager | None
     last_rules_check: datetime | None = None
     cache_file: str = "ubiquity.cache"
+    ubiquiti_api_key: str | None = None
 
     def __init__(self, app_config: dict) -> None:
         super().__init__(
@@ -94,64 +99,20 @@ class UbiquitiOverlord(BaseModel):
             logged_in=False,
             shmem_store=app_config["shmem_store"],
             shmem_mgr=app_config["shmem_mgr"],
+            ubiquiti_api_key=app_config["ubiquiti_api_key"],
         )
-        self.mac_block_url = f"{self.base_api_url}/s/default/cmd/stamgr"
-        self.client_list_url = f"{self.base_api_v2_url}/site/default/clients/active?includeTrafficUsage=false"
-        self.firewall_rule_list_url = f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/firewall-rules/combined-traffic-firewall-rules?originType=traffic_rule"
-        self.firewall_rule_state_change_url = f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/trafficrules/"
+        # https://XXXX/proxy/network/api/s/default/cmd/stamgr
+        self.mac_block_url = (
+            f"{self.base_api_url}/proxy/network/api/s/default/cmd/stamgr"
+        )
+
+        self.client_list_url = f"{self.base_api_v2_url}/proxy/network/v2/api/site/default/clients/active?includeTrafficUsage=false"
+        # https://XXX/proxy/network/v2/api/site/default/clients/active?includeTrafficUsage=true&includeUnifiDevices=true
+        #       #self.firewall_rule_list_url = f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/firewall-rules/combined-traffic-firewall-rules?originType=traffic_rule"
+        self.firewall_rule_list_url = f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/firewall-policies"
+        self.firewall_rule_state_change_url = f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/firewall-policies/batch"
+        # self.firewall_rule_state_change_url = f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api/site/default/trafficrules/"
         logger.info("Initialized ubiquity module")
-        self.load_from_cache()
-
-    def save_to_cache(self):
-        """
-        Saves the session data to the cache file.
-        """
-        if not self.session:
-            return
-
-        cache_data = {
-            "auth_token": self.auth_token,
-            "csrf_token": self.csrf_token,
-            "cookies": self.session.cookies.get_dict(),
-            "login_expiry": self.login_expiry,
-        }
-        with open(self.cache_file, "w") as f:
-            json.dump(cache_data, f)
-        logger.info(f"Saved session to cache file: {self.cache_file}")
-
-    def load_from_cache(self):
-        """
-        Loads session data from the cache file if it's valid.
-        """
-        if not os.path.exists(self.cache_file):
-            logger.info("Cache file not found. Skipping.")
-            return
-
-        # Check cache file age
-        cache_age = datetime.now() - datetime.fromtimestamp(
-            os.path.getmtime(self.cache_file)
-        )
-        if cache_age.total_seconds() > 3600:  # 60 minutes
-            logger.info("Cache file is older than 60 minutes. Ignoring.")
-            return
-
-        logger.info(f"Loading session from cache file: {self.cache_file}")
-        with open(self.cache_file, "r") as f:
-            cache_data = json.load(f)
-
-        self.auth_token = cache_data.get("auth_token")
-        self.csrf_token = cache_data.get("csrf_token")
-        self.login_expiry = cache_data.get("login_expiry")
-
-        if not self.auth_token or not self.csrf_token:
-            logger.warning("Incomplete data in cache file. Ignoring.")
-            return
-
-        self.session = requests.session()
-        self.session.cookies.update(cache_data.get("cookies", {}))
-        self.session.headers.update({"X-CSRF-Token": self.csrf_token})
-        self.logged_in = True
-        logger.info("Successfully loaded session from cache.")
 
     def parse_firewall_rules(self):
         """
@@ -172,17 +133,23 @@ class UbiquitiOverlord(BaseModel):
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail=response.text)
         rules = response.json()
+        trans = {True: "enabled", False: "disabled"}
+        stats = {"enabled": 0, "disabled": 0}
         for rule in rules:
             if rule["name"] in self.firewall_rules:
                 self.firewall_rules[rule["name"]] = rule
                 ## We apparently need to package the whole json
-                logger.info(
-                    f"Adding {rule['name']} with origin ID {rule['origin_id']} to state {rule['enabled']}"
+                # Note: moved from orgin_id to _id in latest controller
+                stats[trans[rule["enabled"]]] += 1
+                logger.debug(
+                    f"Adding {rule['name']} with origin ID {rule['_id']} to state {rule['enabled']}"
                 )
 
         # Update the last checked timestamp
         self.last_rules_check = datetime.now()
-        logger.debug(f"Updated firewall rules at {self.last_rules_check}")
+        logger.info(
+            f"Updated firewall rules at {self.last_rules_check} - {pformat(stats)}"
+        )
 
     def first_connect(self):
         """
@@ -201,6 +168,13 @@ class UbiquitiOverlord(BaseModel):
         Note:
             This method should be called before making any other API requests.
         """
+        if self.ubiquiti_api_key is None or self.ubiquiti_api_key == "":
+            raise HTTPException(status_code=401, detail="API Key not set")
+
+        self.session = requests.session()
+        self.session.headers.update({"X-API-KEY": self.ubiquiti_api_key})
+        self.logged_in = True
+        return
 
         if self.logged_in:
             logger.debug("Already logged in. Skipping first_connect() method.")
@@ -214,6 +188,10 @@ class UbiquitiOverlord(BaseModel):
             )
             self.session = self.shmem_store["ubiquiti_session"]
             self.logged_in = True
+            return
+
+        if self.logged_in:
+            logger.debug("Logged in from cache. Skipping login.")
             return
         pArgs = {
             "username": self.username,
@@ -246,9 +224,8 @@ class UbiquitiOverlord(BaseModel):
             )
             self.logged_in = False
             return
-        self.session.headers.update({"X-CSRF-Token": self.csrf_token})
-        self.logged_in = True
-        self.save_to_cache()
+        # self.session.headers.update({"X-CSRF-Token": self.csrf_token})
+        # self.save_to_cache()
         self.shmem_store["ubiquity_session"] = self.session
         self.parse_firewall_rules()
 
@@ -267,33 +244,36 @@ class UbiquitiOverlord(BaseModel):
             furl = url + "?" + qs
         logger.debug(f"{furl} with {data}")
         if method == "get":
-            return self.session.get(furl, timeout=(3.05, 5))
+            return self.session.get(furl, timeout=(3.05, 10))
         elif method == "put":
-            return self.session.put(furl, json=data, timeout=(3.05, 5))
+            return self.session.put(furl, json=data, timeout=(3.05, 10))
         elif method == "delete":
-            return self.session.delete(furl, json=data, timeout=(3.05, 5))
-        return self.session.post(furl, json=data, timeout=(3.05, 5))
+            return self.session.delete(furl, json=data, timeout=(3.05, 10))
+        return self.session.post(furl, json=data, timeout=(3.05, 10))
 
     def check_logged_in(self):
         """
-        Checks if our session has expired
+        Checks if API Key Set
+         Deprecates original logic
         """
+        if self.ubiquiti_api_key is None or self.ubiquiti_api_key == "":
+            raise HTTPException(status_code=401, detail="Not logged in")
         if not self.logged_in:
             logger.debug("Not logged in, logging in...")
             self.first_connect()
             return
-        now = datetime.now()
-        expiry_time = (
-            datetime.fromtimestamp(self.login_expiry) if self.login_expiry else None
-        )
+        # now = datetime.now()
+        # expiry_time = (
+        #     datetime.fromtimestamp(self.login_expiry) if self.login_expiry else None
+        # )
 
-        if expiry_time is None or now > expiry_time:
-            logger.debug("Login expired, refreshing...")
-            self.first_connect()
-        else:
-            logger.debug(
-                f"Still logged in. Current time: {now}, valid until: {expiry_time}"
-            )
+        # if expiry_time is None or now > expiry_time:
+        #     logger.debug("Login expired, refreshing...")
+        #     self.first_connect()
+        # else:
+        #     logger.debug(
+        #         f"Still logged in. Current time: {now}, valid until: {expiry_time}"
+        #     )
 
     def check_rules_freshness(self):
         """
@@ -357,35 +337,37 @@ class UbiquitiOverlord(BaseModel):
 
         # Check if rules need refreshing
         self.check_rules_freshness()
-        logger.debug(f" {pformat(self.firewall_rules)}")
+        #        logger.debug(f" {pformat(self.firewall_rules)}")
         logger.debug(
             f"Changing status for {rule} to {requested_status} from {self.firewall_rules[rule]['enabled']}"
         )
-        id = self.firewall_rules[rule]["origin_id"]
-        url = f"{self.firewall_rule_state_change_url}/{id}"
+        # changed with latest controller to _id
+        id = self.firewall_rules[rule]["_id"]
+        url = f"{self.firewall_rule_state_change_url}"
+        payload = [{"_id": id, "enabled": trans[requested_status]}]
         logger.debug(f"{url} vs {self.firewall_rule_state_change_url}")
         logger.info(f"Changing status for {rule} to {requested_status}")
-        request_object = self.firewall_rules[rule].copy()
-        request_object["enabled"] = trans[requested_status]
-        request_object["action"] = request_object["traffic_rule_action"]
-        request_object["description"] = request_object["name"]
-        ### FIXME: Need to understand when these are set
-        for i in [
-            "app_category_ids",
-            "app_ids",
-            "domains",
-            "ip_addresses",
-            "ip_ranges",
-            "network_ids",
-            "regions",
-        ]:
-            request_object[i] = (
-                []
-                if i not in request_object or request_object[i] is None
-                else request_object[i]
-            )
-        request_object["_id"] = request_object["origin_id"]
-        payload = request_object
+        # request_object = self.firewall_rules[rule].copy()
+        # request_object["enabled"] = trans[requested_status]
+        # request_object["action"] = request_object["traffic_rule_action"]
+        # request_object["description"] = request_object["name"]
+        # ### FIXME: Need to understand when these are set
+        # for i in [
+        #     "app_category_ids",
+        #     "app_ids",
+        #     "domains",
+        #     "ip_addresses",
+        #     "ip_ranges",
+        #     "network_ids",
+        #     "regions",
+        # ]:
+        #     request_object[i] = (
+        #         []
+        #         if i not in request_object or request_object[i] is None
+        #         else request_object[i]
+        #     )
+        # request_object["_id"] = request_object["origin_id"]
+        # payload = request_object
         # action\
         resp_raw = self.cmd(url=url, data=payload, method="put", qs=None)
         # resp = resp_raw.json()
