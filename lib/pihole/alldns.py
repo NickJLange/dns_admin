@@ -19,20 +19,15 @@ from .base import BaseHTTPHandler
 from pihole6api import PiHole6Client
 
 # from ..dependencies import get_token_header
-
-logger = logging.getLogger()
-
-import http.client as http_client
-
-http_client.HTTPConnection.debuglevel = 1
+# logger = logging.getLogger(__name__)
+# logger.setLevel(logging.DEBUG)
+# logger.debug("Stated up all_dns")
 
 
 class MasterEnabler(BaseHTTPHandler):
     app_config: dict
     piList: List[str]
     domains: dict
-    password: str
-    token: str
     timer: int
     sessions: dict
 
@@ -42,76 +37,101 @@ class MasterEnabler(BaseHTTPHandler):
     #        self.timer = 0
     def __init__(self, app_config: dict) -> None:
         super().__init__(app_config=app_config)
-        logging.basicConfig()
-        logging.getLogger().setLevel(logging.DEBUG)
-        requests_log = logging.getLogger("requests.packages.urllib3")
-        requests_log.setLevel(logging.DEBUG)
-        requests_log.propagate = True
+        global logger
+        logger = app_config["logger"]
+        logger.debug("Started up all_dns")
 
-    def cmd(
-        self, cmd=None, phList=None, pi=None, domain=None, comment=None, method="post"
-    ):
+    # def cmd(
+    #     self, cmd=None, phList=None, pi=None, domain=None, comment=None, method="post"
+    # ):
+    #     if not self.logged_in:
+    #         logger.debug("Not logged in, logging in...")
+    #         self.first_connect()
+    #     url = "/admin/api.php"
+    #     gArgs = {"auth": self.token}
+    #     pArgs = {}
+    #     if not cmd:
+    #         return
+    #     if cmd == "disable" or cmd == "enable":
+    #         gArgs[cmd] = self.timer
+    #         qs = urlparse.urlencode(gArgs)
+    #     else:
+    #         qs = cmd
+    #     #        print(qs)
+
+    #     furl = "http://" + str(pi) + url + "?" + qs
+    #     pprint(furl)
+    #     logger.debug(f"'{furl}' and cookies {self.sessions[pi].cookies}")
+    #     if method == "get":
+    #         temp = self.sessions[pi].get(furl)
+    #         logger.debug(temp.json())
+    #         return temp.json()
+    #     temp = self.sessions[pi].post(furl, data=pArgs)
+    #     logger.debug(temp.text)
+    #     return temp.json()
+
+    def flip_mode(self, status: bool | None = None):
+        logger.debug(f"Flipping DNS blocking to {'enabled' if status else 'disabled'}")
+        stateMap = {"enabled": "true", "disabled": "false"}
         if not self.logged_in:
             logger.debug("Not logged in, logging in...")
             self.first_connect()
-        url = "/admin/api.php"
-        gArgs = {"auth": self.token}
-        pArgs = {}
-        if not cmd:
-            return
-        if cmd == "disable" or cmd == "enable":
-            gArgs[cmd] = self.timer
-            qs = urlparse.urlencode(gArgs)
-        else:
-            qs = cmd
-        #        print(qs)
+        retv = list()
+        for _, pi in self.sessions.items():
+            pi.dns_control.set_blocking_status(status, self.timer)
+            retp = pi.dns_control.get_blocking_status()
+            #            logger.debug(f"DNS status on {type(pi)}: {pformat(status)}")
+            retv.append(
+                json.dumps({k: retp[k] for k in ["blocking"]})
+            )  # timer is ticking, so whill not converge
+        if len(set(retv)) > 1:
+            logger.warning(
+                f"Inconsistent states detected among devices {pformat(retv)}"
+            )
+            return {"status": "unknown"}  #        self.cmd("disable, None, pi)
+        rets = json.loads(retv[0])
+        return {"status": stateMap[rets["blocking"]]}
 
-        furl = "http://" + str(pi) + url + "?" + qs
-        pprint(furl)
-        logger.debug(f"'{furl}' and cookies {self.sessions[pi].cookies}")
-        if method == "get":
-            temp = self.sessions[pi].get(furl)
-            logger.debug(temp.json())
-            return temp.json()
-        temp = self.sessions[pi].post(furl, data=pArgs)
-        logger.debug(temp.text)
-        return temp.json()
-
-    def disable(self, command=None, timer=None):
+    def disable_dns_blocking(self, timer=None):
         if timer:
             self.timer = timer
-        for pi in self.piList:
-            logger.info(self.cmd(cmd="disable", pi=pi))
+        return self.flip_mode(status=False)
+        # {'blocking': 'disabled', 'timer': 60 ...}
 
-        #        self.cmd("disable, None, pi)
-        return self.get(timer)
-
-    def delete(self, command=None, timer=None):
+    def enable_dns_blocking(self, timer=30):
         if timer:
             self.timer = timer
-        for pi in self.piList:
-            logger.info(self.cmd(cmd="enable", pi=pi))
-        return self.get(timer)
+        return self.flip_mode(status=True)
 
-    def get(self, command=None, timer=None):
-        if timer:
-            self.timer = timer
-        resps = list()
-        sumResp = defaultdict(list)
-        for pi in self.piList:
-            logger.debug(f"Checking status {pi}")
-            resps.append(self.cmd(method="get", cmd="summaryRaw", pi=pi))
-        logger.debug(pformat(resps))
+    def get(self):
+        stateMap = {"enabled": "true", "disabled": "false"}
+        logger.debug("Getting DNS blocking status")
+        if not self.logged_in:
+            logger.debug("Not logged in, logging in...")
+            self.first_connect()
+        retv = list()
+        for _, pi in self.sessions.items():
+            logger.debug(f"Getting DNS status on {type(pi)}")
+            status = pi.dns_control.get_blocking_status()
+            retv.append(
+                json.dumps({k: status[k] for k in ["blocking"]})
+            )  # timer is ticking, so whill not converge
+        if len(set(retv)) > 1:
+            logger.warning("Inconsistent states detected among devices")
+            logger.warning(f"States: {pformat(retv)}")
+            return {"status": "unknown"}  #        self.cmd("disable, None, pi)
+        rets = json.loads(retv[0])
+        return {"status": stateMap[rets["blocking"]]}
 
-        stateMap = {"enabled": "on", "disabled": "off"}
-        ## enumerate states, accounting for fact some states might be different between devices...
-        for piResp in resps:
-            translated = stateMap[piResp["status"]]
-            #           translated = "disabled"
-            sumResp[translated].append(translated)
-        # FIXME: Can HomeKit represent this???
-        if len(sumResp.keys()) > 1:
-            return {"status": "off"}
-        logger.info({"status": list(sumResp.keys())[0]})
+        # stateMap = {"enabled": "on", "disabled": "off"}
+        # ## enumerate states, accounting for fact some states might be different between devices...
+        # for piResp in resps:
+        #     translated = stateMap[piResp["status"]]
+        #     #           translated = "disabled"
+        #     sumResp[translated].append(translated)
+        # # FIXME: Can HomeKit represent this???
+        # if len(sumResp.keys()) > 1:
+        #     return {"status": "off"}
+        # logger.info({"status": list(sumResp.keys())[0]})
 
-        return {"status": list(sumResp.keys())[0]}
+        # return {"status": list(sumResp.keys())[0]}
