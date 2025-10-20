@@ -23,7 +23,6 @@ class BaseHTTPHandler(BaseModel):
     timer: int
     sessions: dict[str, PiHole6Client]
     logged_in: bool = False
-    # token: str
 
     def __init__(self, app_config: dict) -> None:
         super().__init__(
@@ -37,7 +36,6 @@ class BaseHTTPHandler(BaseModel):
             timer=0,
             sessions=dict(),
         )
-        # token=app_config["remote_pi_token"],
         self.password = app_config["remote_pi_password"]
         logger = logging.getLogger(__name__)
         logger.setLevel(app_config["default_log_level"])
@@ -52,13 +50,6 @@ class BaseHTTPHandler(BaseModel):
             f"Merged domains: {len(self.domains.keys())} vs {len(self.block_domains.keys())} vs {len(self.allow_domains.keys())}"
         )
 
-    #        if not self.logged_in:
-    #            logger.debug("Not logged in, logging in...")
-    #            self.first_connect()
-
-    #        self.token = hashlib.sha256(
-    #            hashlib.sha256(str(self.password).encode()).hexdigest().encode()
-    #        ).hexdigest()
     def shutdown(self):
         if self.logged_in:
             for _, pi in self.sessions.items():
@@ -84,8 +75,6 @@ class BaseHTTPHandler(BaseModel):
         if self.logged_in:
             logger.debug("Already logged in. Skipping first_connect() method.")
             return
-        # pArgs = {"pw": self.password, "persistentlogin": "on"}
-        #        url = "/admin/login.php"
         self.logged_in = True
         for pi in self.piList:
             furl = "http://" + str(pi)
@@ -97,33 +86,6 @@ class BaseHTTPHandler(BaseModel):
                 logger.error(f"Error connecting to PiHole at {furl}: {e}")
                 self.logged_in = False
                 continue
-
-    # def cmd(self, cmd, phList, method="post", pi=None, domain=None, comment=None):
-    #     if not self.logged_in:
-    #         logger.debug("Not logged in, logging in...")
-    #         self.first_connect()
-    #     gArgs = {"list": phList, "auth": self.token}
-    #     pArgs = {}
-    #     if domain:
-    #         gArgs[cmd] = domain
-    #     if comment:
-    #         pArgs["comment"] = comment
-    #     qs = urlparse.urlencode(gArgs)
-    #     #        print(qs)
-    #     furl = "http://" + str(pi) + self.url + "?" + qs
-    #     #            pprint(furl)
-    #     logger.debug(f"'{furl}' with '{pArgs}'")
-    #     if method == "get":
-    #         temp = self.sessions[pi].get(furl, timeout=(3.05, 5))
-    #         try:
-    #             return temp.json()
-    #         except:
-    #             logger.error(f"Error in get: {temp.text}")
-    #     temp = self.sessions[pi].post(furl, data=pArgs, timeout=(3.05, 5))
-    #     try:
-    #         return temp.json()
-    #     except:
-    #         logger.error(f"Error in get: {temp.text}")
 
     def transform(self, cleanDomain):
         fdomain = re.sub(r"\.", "\\.", cleanDomain)

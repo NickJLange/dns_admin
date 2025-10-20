@@ -1,20 +1,6 @@
-import requests
-import hashlib
-from urllib import parse as urlparse
-import urllib3
-import re
-import sys
-import os
-import json
-
 import logging
-from collections import defaultdict
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, BaseConfig
-from typing import Optional, List
-from pprint import pprint, pformat
-
-# from ..dependencies import get_token_header
+from fastapi import APIRouter
+from typing import Optional
 
 
 from .alldns import MasterEnabler
@@ -31,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 pihole: PiHoleOverlord | None = None
 all_dns: MasterEnabler | None = None
-enabled: bool = False
 
 
 def init(app_config: dict):
@@ -39,7 +24,6 @@ def init(app_config: dict):
     global all_dns
     global logger
 
-    #   logger = app_config["logger"]
     pihole = PiHoleOverlord(app_config=app_config)
     all_dns = MasterEnabler(app_config=app_config)
     logger = app_config["logger"]
@@ -50,7 +34,6 @@ def init(app_config: dict):
 main_router = APIRouter(
     prefix="/pihole",
     tags=["pihole"],
-    #    dependencies=[Depends(get_token_header)],
     responses={404: {"description": "Not found on earth."}},
 )
 
@@ -73,7 +56,6 @@ async def delete_pihole(domain_block: str):
 alldns_router = APIRouter(
     prefix="/alldns",
     tags=["alldns"],
-    #    dependencies=[Depends(get_token_header)],
     responses={404: {"description": "Not found"}},
 )
 

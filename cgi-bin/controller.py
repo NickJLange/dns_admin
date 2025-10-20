@@ -80,10 +80,12 @@ def init_config(app, config_location: str = "../etc/config.ini"):
             "mqtt_announce_enabled",
         ]:
             temp = config.get("general", key, fallback=False)
-            if temp.lower() in ["yes", "true", "1"]:
+            if isinstance(temp, str) and temp.lower() in ["yes", "true", "1"]:
                 app_config[key] = True
-            elif temp.lower() in ["no", "false", "0"]:
+            elif isinstance(temp, str) and temp.lower() in ["no", "false", "0"]:
                 app_config[key] = False
+            elif isinstance(temp, bool):
+                app_config[key] = temp
             else:
                 logger.warning(
                     f"Unknown boolean value for {key}: {temp}, defaulting to False"
