@@ -1,0 +1,86 @@
+[general]
+# remote_pi_list: <PI_IP_ADDRESS_1> <PI_IP_ADDRESS_2> - also set via REMOTE_PI_LIST environmental variable
+
+ubiquiti_control_enabled: yes
+pihole_control_enabled: yes
+mqtt_announce_enabled: yes
+
+
+#set REMOTE_PI_LIST environmental variable as well
+# remote_pi_token: <REMOTE_PI_TOKEN> - also set via REMOTE_PI_TOKEN environmental variable
+
+[mqtt]
+# broker: <MQTT_BROKER> - also set via MQTT_BROKER environmental variable
+# port: <MQTT_PORT>  - also set via MQTT_PORT environmental variable
+lwt_topics:
+    stat/ubiquiti_controller/service_status
+    stat/pihole_controller/master/service_status
+
+[ubiquiti]
+# remote_ubiquiti_device: <YOUR_UNIFI_DEVICE_IP> - also set via REMOTE_UBIQUITI_DEVICE environmental variable
+# remote_ubiquiti_api_key: <YOUR_UNIFI_API_KEY> - also set  via REMOTE_UBIQUITI_API_KEY environmental variable
+
+[ubiquiti_targets]
+kids_macs: <MAC_ADDRESS_1>
+           <MAC_ADDRESS_2>
+laptop: <MAC_ADDRESS_3>
+
+[ubiquiti_rules]
+rules:  Fun_Full
+        Fun_Youtube
+        Stop_All_Fun
+        Laptops_All
+        Laptops_Youtube
+
+
+[block_domains]
+dplus:  disneyplus.com
+        bamgrid.com
+        bam.nr-data.net
+        cdn.registerdisney.go.com
+        cws.conviva.com
+        d9.flashtalking.com
+        disney-portal.my.onetrust.com
+        disneyplus.bn5x.net
+        js-agent.newrelic.com
+        disney-plus.net
+        dssott.com
+        adobedtm.com
+        choosey.com
+
+netflix: netflix.com
+
+hbomax: hbo.com
+
+youtube:youtube.com
+        googlevideo.com
+        youtu.be
+        youtubei.googleapis.com
+        ytimg.com
+        zytimg.com
+
+playstation: playstation.net
+minecraft: minecraft.net
+
+[allow_domains]
+school:
+    in.appcenter.ms
+    track.spe.schoolmessenger.com
+    wayup.com
+
+tech:
+    lp.scylladb.com
+
+
+streaming:
+    pubads.g.doubleclick.net
+    mobile-collector.newrelic.com
+    vod-media-aka.warnermediacdn.com
+    assets.adobedtm.com
+    cdn.cookielaw.org
+    cdn.optimizely.com
+    registry.api.cnn.io
+    turnip.cdn.turner.com
+    z.cdp-dev.cnn.com
+    sdk.iad-06.braze.com
+    assets-secure.applicaster.com

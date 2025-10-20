@@ -41,8 +41,6 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # https://192.168.100.1/--data-raw '{"username":"overlord","password":"0verlorD","token":"","rememberMe":false}' -X POST -H 'Referer: https://192.168.100.1/login?redirect=%2F' -H 'Content-Type: application/json'
 #
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 
 class InboundPayload(BaseModel):
@@ -53,8 +51,9 @@ class UbiquitiOverlord(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     app_config: dict
-    username: str
-    password: str
+    # Deprecated as of latest network release
+    # username: str
+    # password: str
     controller: str
     macs: dict
     auth_token: str | None
@@ -71,8 +70,8 @@ class UbiquitiOverlord(BaseModel):
     login_expiry: int | None
     rule_cache_ttl: int
     session: requests.Session | None
-    shmem_store: DictProxy | None
-    shmem_mgr: SyncManager | None
+    #    shmem_store: DictProxy | None
+    #    shmem_mgr: SyncManager | None
     last_rules_check: datetime | None = None
     cache_file: str = "ubiquity.cache"
     ubiquiti_api_key: str | None = None
@@ -80,10 +79,8 @@ class UbiquitiOverlord(BaseModel):
     def __init__(self, app_config: dict) -> None:
         super().__init__(
             app_config=app_config,
-            username=app_config["ubiquiti_username"],
             macs=app_config["ubiquiti_targets"],
             controller=app_config["ubiquiti_device"],
-            password=app_config["ubiquiti_password"],
             session=None,
             base_api_url=f"https://{app_config['ubiquiti_device']}/proxy/network/api",
             base_api_v2_url=f"https://{app_config['ubiquiti_device']}/proxy/network/v2/api",
@@ -97,10 +94,18 @@ class UbiquitiOverlord(BaseModel):
             login_expiry=0,
             rule_cache_ttl=60,
             logged_in=False,
-            shmem_store=app_config["shmem_store"],
-            shmem_mgr=app_config["shmem_mgr"],
             ubiquiti_api_key=app_config["ubiquiti_api_key"],
         )
+        #        Deprecated as of latest network release
+        #        username=app_config["ubiquiti_username"],
+        #        password=app_config["ubiquiti_password"],
+
+        global logger
+        logger = logging.getLogger(__name__)
+        logger.setLevel(app_config["default_log_level"])
+        #            shmem_store=app_config["shmem_store"],
+        # shmem_mgr=app_config["shmem_mgr"],
+
         # https://XXXX/proxy/network/api/s/default/cmd/stamgr
         self.mac_block_url = (
             f"{self.base_api_url}/proxy/network/api/s/default/cmd/stamgr"
@@ -150,6 +155,12 @@ class UbiquitiOverlord(BaseModel):
         logger.info(
             f"Updated firewall rules at {self.last_rules_check} - {pformat(stats)}"
         )
+
+    def shutdown(self):
+        if self.logged_in:
+            self.logged_in = False
+            self.session.close()
+        logger.info("Ubiquiti session closed.")
 
     def first_connect(self):
         """

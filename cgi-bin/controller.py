@@ -16,46 +16,206 @@ from collections import defaultdict
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, BaseConfig
 from typing import Optional, List
+from contextlib import asynccontextmanager
 
-# Disable warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+import aiomqtt  # noqa: F401
 
 ### For Data Sharing of Login Sessions
 from multiprocessing import Manager
 
+# Disable warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
 sys.path.append(os.path.join(os.path.dirname(__file__), "../lib/"))
 
 # pihole.init()
-from pihole import pihole_core  # noqa: E402
+from pihole import pihole, pihole_router  # noqa: E402
 from ubiquity import ubiquity  # noqa: E402
 
-logging.basicConfig(
-    level=logging.ERROR,
-    format="[%(asctime)s] - [%(name)s] - [%(funcName)s:%(lineno)d] - [%(levelname)s] - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+default_log_level = logging.INFO
 
 logger = logging.getLogger()
-logger.debug("test")
+logging.basicConfig(
+    level=default_log_level,
+    format="[%(asctime)s] - [%(name)s] - [%(funcName)s:%(lineno)d] - [%(levelname)s] - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True,
+)
 
+app_config: dict | None = None
 
 description = """
-API to manage pihole < 5 API devices and ubiquity API based devices. 🚀
+FastAPI to manage multiple Pi-holes DNS filtering and Ubiquiti network access controls. 🚀
 
-## Key Ideas
+## Key Features
 
-* Disable DNS for certain domains.
-* Disable MAC Addresses at the Ubiquity Gateway
-* Disable/Enable traffic rules on the fly (which are more complex than blocking one device at time)
+### Pi-hole Management
+*   **Domain-level Blocking/Allowing**: Dynamically enable or disable specific domain groups (e.g., regex blacklists or whitelists) on configured Pi-hole instances.
+*   **Global DNS Control**: Enable or disable DNS blocking entirely across all connected Pi-hole devices, with an optional timer for temporary disabling.
 
-## Caveat Emptor
+### Ubiquiti Network Management
+*   **Client Device Control**: Block or unblock individual client devices by their MAC address on the Ubiquiti Gateway.
+*   **Firewall Rule Management**: Enable or disable custom firewall rules on the Ubiquiti Gateway to control network traffic.
 
-Will not work if the endpoint does not talk to the Ubiquity Gateway or the PiHole DNS server is version 6 (for now).
+## Compatibility Note
+
+This API is designed for compatibility with Pi-hole v6 (utilizing `pihole6api`) and Ubiquiti Network devices (such as UniFi Dream Machine) through their respective APIs.
 """
 
+
+def init_config(app, config_location: str = "../etc/config.ini"):
+    global logger
+    global app_config
+    app_config = dict()
+    app_config["default_log_level"] = logging.DEBUG
+    config = configparser.ConfigParser()
+    try:
+        config.read(config_location)
+        # Load DNS blocks into
+        logger.info(pformat(config.sections()))
+        for key in [
+            "ubiquiti_control_enabled",
+            "pihole_control_enabled",
+            "mqtt_announce_enabled",
+        ]:
+            temp = config.get("general", key, fallback=False)
+            if temp.lower() in ["yes", "true", "1"]:
+                app_config[key] = True
+            elif temp.lower() in ["no", "false", "0"]:
+                app_config[key] = False
+            else:
+                logger.warning(
+                    f"Unknown boolean value for {key}: {temp}, defaulting to False"
+                )
+                app_config[key] = False
+        if app_config["pihole_control_enabled"]:
+            for area in ["allow_domains", "block_domains"]:
+                app_config[area] = dict()
+                for provider in config.options(area):
+                    app_config[area][provider] = config.get(area, provider).splitlines()
+            #            print(provider)
+            app_config["remote_pi_list"] = config.get(
+                "general",
+                "remote_pi_list",
+                fallback=os.environ.get("REMOTE_PI_LIST"),
+            ).split(sep=" ")
+
+            app_config["remote_pi_password"] = config.get(
+                "general",
+                "remote_pi_password",
+                fallback=os.environ.get("REMOTE_PI_PASSWORD"),
+            )
+            # app_config["remote_pi_token"] = config.get(
+            #     "general",
+            #     "remote_pi_token",
+            #     fallback=os.environ.get("REMOTE_PI_TOKEN"),
+            # )
+        if app_config["ubiquiti_control_enabled"]:
+            for i in ["DEVICE", "API_KEY"]:
+                key = "ubiquiti_%s" % (i.lower())
+                app_config[key] = config.get(
+                    "ubiquiti",
+                    f"remote_{key}",
+                    fallback=os.environ.get(f"REMOTE_UBIQUITI_{i}"),
+                )
+            app_config["ubiquiti_targets"] = dict()
+            for provider in config.options("ubiquiti_targets"):
+                app_config["ubiquiti_targets"][provider] = config.get(
+                    "ubiquiti_targets", provider
+                ).splitlines()
+                print(provider)
+
+            app_config["ubiquiti_rules"] = dict()
+            for provider in config.options("ubiquiti_rules"):
+                for x in config.get("ubiquiti_rules", provider).splitlines():
+                    app_config["ubiquiti_rules"][x] = {}
+                    logger.debug(f"Enabled{app_config['ubiquiti_rules'][x]} for {x}")
+        if app_config["mqtt_announce_enabled"] and "mqtt" in config.sections():
+            app_config["mqtt"] = dict()
+            app_config["mqtt"]["broker"] = config.get(
+                "mqtt",
+                "broker",
+                fallback=os.environ.get("MQTT_BROKER", "localhost"),
+            )
+            app_config["mqtt"]["port"] = int(
+                config.get(
+                    "mqtt",
+                    "port",
+                    fallback=os.environ.get("MQTT_PORT", "1883"),
+                )
+            )
+            app_config["mqtt"].setdefault("lwt_topics", [])
+            for topic in config.get("mqtt", "lwt_topics").splitlines():
+                if topic:
+                    app_config["mqtt"]["lwt_topics"].append(topic)
+                    logger.debug(
+                        f"Enabled{app_config['mqtt']['lwt_topics']} for {topic}"
+                    )
+            logger.debug(f"MQTT Config: {pformat(app_config['mqtt'])}")
+        app_config["logger"] = logger
+    except configparser.Error as a:
+        logger.error("Couldn't read configs from: %s %s" % (config_location, a))
+    # logger.debug(app_config)
+    return app_config
+
+    # query status of each one and make the call
+    # check ipv6 prefix - alert if diff?
+
+
+async def publish_to_mqtt(mqtt_config: dict, status: str):
+    broker = mqtt_config.get("broker", "localhost")
+    lwt_topics = mqtt_config.get("lwt_topics", [])
+    port = mqtt_config.get("port", 1883)
+
+    try:
+        async with aiomqtt.Client(broker, port) as client:
+            for topic in lwt_topics:
+                logger.debug(f"Publishing LWT of '{status}' to '{topic}'...")
+                await client.publish(topic, status, retain=True)
+                logger.info(f"Published LWT of '{status}' to '{topic}'...")
+    except aiomqtt.MqttError as e:
+        logger.error(f"An error occurred: {e} for {topic_list} and {status}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    config_file = os.path.join(os.path.dirname(__file__), "../etc/", "config.ini")
+
+    app_config = init_config(app, config_file)
+
+    # ~njl/dev/src/overlord/dns_admin/venv/bin/python3
+
+    # FIXME: Move to GUNICORN Logging object
+
+    #    sharedMemManager = Manager()
+    #    app_config["shmem_store"] = sharedMemManager.dict()
+    #    app_config["shmem_mgr"] = sharedMemManager
+
+    # ENHANCEME: Only start if using
+    if app_config["pihole_control_enabled"]:
+        pihole_router.init(app_config)
+        app.include_router(pihole_router.main_router)
+        app.include_router(pihole_router.alldns_router)
+    if app_config["ubiquiti_control_enabled"]:
+        ubiquity.init(app_config)
+        app.include_router(ubiquity.router)
+    if app_config["mqtt_announce_enabled"]:
+        await publish_to_mqtt(app_config["mqtt"], "true")
+    logger.info("Adding Endpoints...")
+    yield
+    # Clean up the ML models and release the resources
+    if app_config["pihole_control_enabled"]:
+        pihole_router.pihole.shutdown()
+    if app_config["ubiquiti_control_enabled"]:
+        ubiquity.udm.shutdown()
+    if app_config["mqtt_announce_enabled"]:
+        await publish_to_mqtt(app_config["mqtt"], "false")
+
+
 app = FastAPI(
-    title="Overlord API",
-    version="v2.0",
+    title="Overlord Network Kill Switch API",
+    version="v2.5",
     openapi_version="3.0.2",
     description=description,
     summary="Ubiquity Gateway and PiHole DNS server management",
@@ -69,88 +229,8 @@ app = FastAPI(
         "name": "Apache 2.0",
         "identifier": "Apache",
     },
+    lifespan=lifespan,
 )
-
-
-def init_config(app, config_location: str = "../etc/config.ini"):
-    global logger
-    app_config = dict()
-    config = configparser.ConfigParser()
-    try:
-        config.read(config_location)
-        # Load DNS blocks into
-        logger.info(pformat(config.sections()))
-        app_config["domains"] = dict()
-        for provider in config.options("domains"):
-            app_config["domains"][provider] = config.get(
-                "domains", provider
-            ).splitlines()
-            print(provider)
-        app_config["remote_pi_list"] = config.get(
-            "general",
-            "remote_pi_list",
-            fallback=os.environ.get("REMOTE_PI_LIST"),
-        ).split(sep=" ")
-        app_config["remote_pi_password"] = config.get(
-            "general",
-            "remote_pi_password",
-            fallback=os.environ.get("REMOTE_PI_PASSWORD"),
-        )
-        app_config["remote_pi_token"] = config.get(
-            "general",
-            "remote_pi_token",
-            fallback=os.environ.get("REMOTE_PI_TOKEN"),
-        )
-        for i in ["DEVICE", "USERNAME", "PASSWORD", "API_KEY"]:
-            key = "ubiquiti_%s" % (i.lower())
-            app_config[key] = config.get(
-                "ubiquiti",
-                f"remote_{key}",
-                fallback=os.environ.get(f"REMOTE_UBIQUITI_{i}"),
-            )
-        app_config["ubiquiti_targets"] = dict()
-        for provider in config.options("ubiquiti_targets"):
-            app_config["ubiquiti_targets"][provider] = config.get(
-                "ubiquiti_targets", provider
-            ).splitlines()
-            print(provider)
-
-        app_config["ubiquiti_rules"] = dict()
-        for provider in config.options("ubiquiti_rules"):
-            for x in config.get("ubiquiti_rules", provider).splitlines():
-                app_config["ubiquiti_rules"][x] = {}
-                logger.debug(f"Enabled{app_config['ubiquiti_rules'][x]}")
-
-        app_config["logger"] = logger
-    except configparser.Error as a:
-        logger.error("Couldn't read configs from: %s %s" % (config_location, a))
-    logger.info(app_config)
-    return app_config
-
-    # query status of each one and make the call
-    # check ipv6 prefix - alert if diff?
-
-
-config_file = os.path.join(os.path.dirname(__file__), "../etc/", "config.ini")
-
-app_config = init_config(app, config_file)
-
-# ~njl/dev/src/overlord/dns_admin/venv/bin/python3
-
-# FIXME: Move to GUNICORN Logging object
-
-sharedMemManager = Manager()
-app_config["shmem_store"] = sharedMemManager.dict()
-app_config["shmem_mgr"] = sharedMemManager
-
-pihole_core.init(app_config)
-ubiquity.init(app_config)
-
-logger.info("Adding Endpoints...")
-
-app.include_router(pihole_core.main_router)
-app.include_router(pihole_core.alldns_router)
-app.include_router(ubiquity.router)
 
 
 logger.info("starting the app...")

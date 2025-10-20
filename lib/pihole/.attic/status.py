@@ -15,13 +15,11 @@ from pydantic import BaseModel, BaseConfig
 from typing import Optional, List
 from pprint import pprint, pformat
 
-#from ..dependencies import get_token_header
+# from ..dependencies import get_token_header
 
 
 from .alldns import MasterEnabler
 from .pihole import PiHoleOverlord
-
-
 
 
 class StatusCheck(MasterEnabler):
@@ -62,59 +60,27 @@ class HealthCheck(MasterEnabler):
         return {"Boo": "Doo2"}
 
 
-
-
-
-
-
 logger = logging.getLogger()
 
-pihole = None
-all_dns = None
 
-def init(app_config: dict):
-  global pihole
-  global all_dns
-  pihole = PiHoleOverlord(app_config=app_config)
-  all_dns = MasterEnabler(app_config=app_config)
-
-main_router = APIRouter(
-    prefix="/pihole",
+status_router = APIRouter(
+    prefix="/pihole/status",
     tags=["pihole"],
-#    dependencies=[Depends(get_token_header)],
+    #    dependencies=[Depends(get_token_header)],
     responses={404: {"description": "Not found"}},
 )
 
 
-@main_router.get("/status/{domain_block}")
+@status_router.get("/status/{domain_block}")
 def get_pihole(domain_block: str):
     return pihole.get(domain_block)
 
-@main_router.post("/disable/{domain_block}")
+
+@status_router.post("/disable/{domain_block}")
 def post_pihole(domain_block: str):
     return pihole.post("disable", domain_block)
 
-@main_router.post("/enable/{domain_block}")
+
+@status_router.post("/enable/{domain_block}")
 def delete_pihole(domain_block: str):
-    return pihole.post("enable",domain_block)
-
-alldns_router = APIRouter(
-    prefix="/alldns",
-    tags=["alldns"],
-#    dependencies=[Depends(get_token_header)],
-    responses={404: {"description": "Not found"}},
-)
-
-
-
-@alldns_router.get("/")
-def get_all_dns( command: str | None, timer: int | None):
-    return all_dns.get(command, timer)
-
-@alldns_router.delete("/")
-def delete_all_dns( command: str | None, timer: int | None):
-    return all_dns.delete(command, timer)
-
-@alldns_router.post("/")
-def post_all_dns( command: str | None, timer: int | None):
-    return all_dns.delete(command, timer)
+    return pihole.post("enable", domain_block)
